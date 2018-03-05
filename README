@@ -1,0 +1,26 @@
+CS 594 Programming Project Part 1
+Shubham Vasaikar
+
+cs594_1
+├── client
+│   └── client.c
+├── Makefile
+├── packet.h
+└── server
+    ├── server.c
+    ├── test1.txt
+    ├── test2.txt
+    └── test.txt
+
+This project consists of the following files:
+1. packet.h - Contains the declaration of the packet structure and the serialization and deserialization functions.
+
+2. client/client.c - Contains the code for the client.
+	Usage: ./client.o hostname port filename
+
+3. server/server.c - Contains the code for the server.
+	Usage: ./server.o port
+
+4. server/test*.txt - 3 files for testing file sending. File sizes are 10KB, 61B, and 10MB respectively.
+
+5. Makefile - For building the project's executables.
