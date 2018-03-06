@@ -8,8 +8,8 @@ typedef enum {
     FILE_REQ,
     FILE_ERR,
     FILE_REQ_ACK,
+    SEND_FILE,
     DATA,
-    DATA_ACK,
     TERM
 }p_type;
 
