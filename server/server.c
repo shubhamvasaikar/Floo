@@ -10,12 +10,73 @@
 #include <netdb.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include "../packet.h"
+
+typedef struct targs {
+    int socket;
+    int fd;
+    struct sockaddr_in *addr;
+}targs;
 
 void error(const char *msg)
 {
     perror(msg);
     exit(0);
+}
+
+void *transmit(void *args) {
+    struct targs *tinfo = (struct targs *) args;
+    int n = 0, retries = 0;
+    int bytesRead = 0;
+    int fRead = tinfo->fd;
+    int sockSendr = tinfo->socket;
+    struct sockaddr_in *clientRecvr = tinfo->addr;
+    packet_t p;
+    uint8_t  buffer[PACKET_SIZE];
+    socklen_t fromlen = sizeof(struct sockaddr_in);
+
+    while (1) {
+        bytesRead = read(fRead, p.data, MAX_DATA);
+        if (bytesRead < 1) {
+            p.type = TERM;
+            p.seq_no += 1;
+            p.length = 0;
+            memset(buffer, 0, MAX_DATA);
+            encode(buffer, &p);
+            n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *) &clientRecvr, fromlen);
+            printf("No. of retries: %d\n\n", (retries - (p.seq_no - 4)));
+            break;
+        }
+        p.type = DATA;
+        p.seq_no += 1;
+        p.length = bytesRead;
+        encode(buffer, &p);
+
+        while (1) {
+            retries += 1;
+            n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *) &clientRecvr, fromlen);
+            if (n < 0) continue;
+            decode(buffer, &p);
+            if (p.type == ACK) break;
+        }
+    }
+}
+
+void *recieve(void *args){
+    struct targs *tinfo = (struct targs *) args;
+    int n = 0, retries = 0;
+    int bytesRead = 0;
+    int fRead = tinfo->fd;
+    int sockRecvr = tinfo->socket;
+    struct sockaddr_in *clientSendr;
+    packet_t p;
+    uint8_t  buffer[PACKET_SIZE];
+    socklen_t fromlen = sizeof(struct sockaddr_in);
+
+    while(1) {
+        n = recvfrom(sockRecvr,buffer,PACKET_SIZE,0,(struct sockaddr *)&clientSendr, &fromlen);
+    }
 }
 
 int main(int argc, char *argv[])
@@ -26,6 +87,8 @@ int main(int argc, char *argv[])
     struct sockaddr_in serverRecvr;       //serverRecvr - port 5277
     struct sockaddr_in clientSendr;
     struct sockaddr_in clientRecvr;
+    pthread_t tx, rx;
+    targs txinfo, rxinfo;
     uint8_t buffer[PACKET_SIZE];                 // buf is buffer
     int bytesRead = 0;
     char filename[256];
@@ -133,33 +196,19 @@ int main(int argc, char *argv[])
         timeout.tv_usec = 100000; //100ms timeout before retransmission.
         setsockopt(sockRecvr,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
 
-        while(1) {
-            bytesRead = read(fRead, p.data, MAX_DATA);
-            if (bytesRead < 1){
-                p.type = TERM;
-                p.seq_no += 1;
-                p.length = 0;
-                memset(buffer, 0, MAX_DATA);
-                encode(buffer, &p);
-                n = sendto(sockSendr,buffer,PACKET_SIZE,0,(struct sockaddr *)&clientRecvr,fromlen);
-                printf("No. of retries: %d\n\n", (retries - (p.seq_no - 4)));
-                break;
-            }
-            p.type = DATA;
-            p.seq_no += 1;
-            p.length = bytesRead;
-            encode(buffer, &p);
-            //n = sendto(sock,buffer,PACKET_SIZE,0,(struct sockaddr *)&from,fromlen);
+        txinfo.fd = fRead;
+        txinfo.socket = sockSendr;
+        txinfo.addr = &clientRecvr;
 
-            while (1) {
-                retries += 1;
-                n = sendto(sockSendr,buffer,PACKET_SIZE,0,(struct sockaddr *)&clientRecvr,fromlen);
-                n = recvfrom(sockRecvr,buffer,PACKET_SIZE,0,(struct sockaddr *)&clientSendr, &length);
-                if (n < 0) continue;
-                decode(buffer, &p);
-                if (p.type == ACK) break;
-            }
-        }
+        rxinfo.fd = 0;
+        rxinfo.socket = sockRecvr;
+        txinfo.addr = &clientSendr;
+
+        pthread_create(&tx, NULL, &transmit, (void *) &txinfo);
+        pthread_create(&rx, NULL, &recieve, (void *) &rxinfo);
+
+        pthread_join(tx, NULL);
+        pthread_join(rx, NULL);
     }
     return 0;
  }
