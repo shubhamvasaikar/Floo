@@ -131,7 +131,7 @@ int main(int argc, char *argv[])
         if (fRead < 0) error("File not found.");
 
         timeout.tv_usec = 100000; //100ms timeout before retransmission.
-        setsockopt(sockSendr,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
+        setsockopt(sockRecvr,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
 
         while(1) {
             bytesRead = read(fRead, p.data, MAX_DATA);
