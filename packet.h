@@ -13,6 +13,12 @@ typedef enum {
     TERM
 }p_type;
 
+typedef struct targs {
+    int socket;
+    int fd;
+    struct sockaddr_in *addr;
+}args;
+
 typedef struct packet_t {
     p_type type;
     int seq_no;

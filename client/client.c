@@ -10,13 +10,64 @@
 #include <fcntl.h>
 #include <string.h>
 #include <libgen.h>
+#include <pthread.h>
 #include "../packet.h"
-
 
 void error(const char *msg)
 {
     perror(msg);
     exit(0);
+}
+
+void * recieve(void *args) {
+    struct targs *tinfo = (struct targs *) args;
+    int n = 0;
+    int fWrite = tinfo->fd;
+    int sockRecvr = tinfo->socket;
+    struct sockaddr_in *serverSendr = tinfo->addr;
+    int debug = 0;
+
+    packet_t p;
+    uint8_t  buffer[PACKET_SIZE];
+    int length = sizeof(struct sockaddr_in);
+
+    while (1){
+        n = recvfrom(sockRecvr,buffer,PACKET_SIZE,0,(struct sockaddr *)serverSendr, &length);
+        decode(buffer, &p);
+        if (p.type == TERM) break;
+        if (debug == 1) printf("Got seq: %d\n",p.seq_no);
+        write(fWrite, p.data, p.length);
+
+        //Uncommenting the next line will cause
+        //the client to drop every 100th packet.
+        //Use this to test retransmission.
+        //if (p.seq_no % 100 == 0) (flag == 1) ? (flag = 0) : (flag = 1);
+
+/*        if (p.seq_no != prev_seq_no) write(fWrite, p.data, p.length);
+        memset(buffer, 0, PACKET_SIZE);
+        p.type = ACK;
+        encode(buffer, &p);
+        if (flag)
+            n = sendto(sockSendr,buffer,PACKET_SIZE,0,(const struct sockaddr *)&serverRecvr,length);
+        prev_seq_no = p.seq_no; */
+    }
+}
+
+void * transmit (void * args) {
+    struct targs *tinfo = (struct targs *) args;
+    int n = 0;
+    int fWrite = tinfo->fd;
+    int sockSendr = tinfo->socket;
+    struct sockaddr_in *serverRecvr = tinfo->addr;
+    int debug = 0;
+
+    packet_t p;
+    uint8_t  buffer[PACKET_SIZE];
+    int length = sizeof(struct sockaddr_in);
+
+    while (1){
+        n = sendto(sockSendr,buffer,PACKET_SIZE,0,(const struct sockaddr *)&serverRecvr,length);
+    }
 }
 
 int main(int argc, char *argv[])
@@ -28,12 +79,15 @@ int main(int argc, char *argv[])
     struct hostent *hp;              //hostent - hostname parameter
     uint8_t buffer[PACKET_SIZE];                //buffer is buffer
     packet_t p;
+    args txinfo, rxinfo;
+    pthread_t tx, rx;
     int debug = 0;
 
     //Serializing...
     //bcopy(&p.seq_no, buffer);
 
     if (argc != 3) {
+
         printf("Usage: server port\n");
         exit(1);
     }
@@ -105,26 +159,13 @@ int main(int argc, char *argv[])
     encode(buffer, &p);
     n = sendto(sockRecvr,buffer,PACKET_SIZE,0,(const struct sockaddr *)&serverRecvr,length);
 
-    while (1){
-        n = recvfrom(sockRecvr,buffer,PACKET_SIZE,0,(struct sockaddr *)&serverSendr, &length);
-        decode(buffer, &p);
-        if (debug == 1) printf("Got seq: %d\n",p.seq_no);
+    rxinfo.fd = fWrite;
+    rxinfo.socket = sockRecvr;
+    rxinfo.addr = &serverSendr;
 
-        //Uncommenting the next line will cause
-        //the client to drop every 100th packet.
-        //Use this to test retransmission.
-        //if (p.seq_no % 100 == 0) (flag == 1) ? (flag = 0) : (flag = 1);
+    pthread_create(&rx, NULL, &recieve, (void *) &rxinfo);
 
-        if (p.type == TERM) break;
-
-        if (p.seq_no != prev_seq_no) write(fWrite, p.data, p.length);
-        memset(buffer, 0, PACKET_SIZE);
-        p.type = ACK;
-        encode(buffer, &p);
-        if (flag)
-            n = sendto(sockSendr,buffer,PACKET_SIZE,0,(const struct sockaddr *)&serverRecvr,length);
-        prev_seq_no = p.seq_no;
-    }
+    pthread_join(rx, NULL);
 
     close(sockSendr);
     return 0;
