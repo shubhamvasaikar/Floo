@@ -1,3 +1,19 @@
+#include <iostream>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <string.h>
+#include <libgen.h>
+#include <pthread.h>
+
+using namespace std;
+
 #define PORT_NUMBER_DATA 5277
 #define PORT_NUMBER_ACK 4111
 #define MAX_DATA 1024

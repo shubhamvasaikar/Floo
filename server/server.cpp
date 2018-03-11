@@ -1,15 +1,6 @@
 /* Creates a datagram server.  The port
    number is passed as an argument.  This
    server runs forever */
-#include <sys/types.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <string.h>
-#include <stdio.h>
-#include <fcntl.h>
-#include <pthread.h>
 #include "../packet.h"
 
 void error(const char *msg)

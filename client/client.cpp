@@ -1,16 +1,4 @@
 /* UDP client in the internet domain */
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <string.h>
-#include <libgen.h>
-#include <pthread.h>
 #include "../packet.h"
 
 void error(const char *msg)
@@ -29,10 +17,10 @@ void * recieve(void *args) {
 
     packet_t p;
     uint8_t  buffer[PACKET_SIZE];
-    int length = sizeof(struct sockaddr_in);
+    unsigned int length = sizeof(struct sockaddr_in);
 
     while (1){
-        n = recvfrom(sockRecvr,buffer,PACKET_SIZE,0,(struct sockaddr *)serverSendr, &length);
+        n = recvfrom(sockRecvr, buffer, PACKET_SIZE, 0, (struct sockaddr *)serverSendr, &length);
         decode(buffer, &p);
         if (p.type == TERM) break;
         if (debug == 1) printf("Got seq: %d\n",p.seq_no);
