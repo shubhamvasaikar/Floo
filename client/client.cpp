@@ -1,11 +1,22 @@
 /* UDP client in the internet domain */
 #include "../packet.h"
 
-void error(const char *msg)
-{
+void error(const char *msg) {
     perror(msg);
     exit(0);
 }
+
+bool Compare(packet_t a, packet_t b) {
+    if (a.seq_no < b.seq_no)
+        return false;
+    else
+        return true;
+}
+
+priority_queue<packet_t, vector<packet_t>, function<bool(packet_t, packet_t)>> pq(Compare);
+queue<int> ack_queue;
+//priority_queue<int, vector<int>, function<bool(int, int)>> pq(Compare);
+
 
 void * recieve(void *args) {
     struct targs *tinfo = (struct targs *) args;
@@ -22,7 +33,10 @@ void * recieve(void *args) {
     while (1){
         n = recvfrom(sockRecvr, buffer, PACKET_SIZE, 0, (struct sockaddr *)serverSendr, &length);
         decode(buffer, &p);
-        if (p.type == TERM) break;
+        if (p.type == TERM)
+            break;
+        ack_queue.push(p.seq_no);
+        pq.push(p);
         if (debug == 1) printf("Got seq: %d\n",p.seq_no);
         write(fWrite, p.data, p.length);
 
@@ -58,8 +72,7 @@ void * transmit (void * args) {
     }
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     int sockSendr, sockRecvr, n;
     unsigned int length;
     struct sockaddr_in serverSendr;       //serverSendr - port 4111
@@ -154,6 +167,18 @@ int main(int argc, char *argv[])
     pthread_create(&rx, NULL, &recieve, (void *) &rxinfo);
 
     pthread_join(rx, NULL);
+
+    int len_queue = ack_queue.size();
+    for (int i = 0; i < len_queue; i++) {
+        printf("ack_queue[%d]: %d\n", i, ack_queue.front());
+        ack_queue.pop();
+    }
+
+    len_queue = pq.size();
+    for (int i = 0; i < len_queue; i++) {
+        printf("pri_queue[%d]: %d\n", i, pq.top().seq_no);
+        pq.pop();
+    }
 
     close(sockSendr);
     return 0;
