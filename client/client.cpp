@@ -13,10 +13,12 @@ bool Compare(packet_t a, packet_t b) {
         return true;
 }
 
-priority_queue<packet_t, vector<packet_t>, function<bool(packet_t, packet_t)>> pq(Compare);
+priority_queue<packet_t, vector<packet_t>, function<bool(packet_t, packet_t)>> fileQ(Compare);
 queue<int> ack_queue;
-//priority_queue<int, vector<int>, function<bool(int, int)>> pq(Compare);
 
+pthread_mutex_t mutex;
+pthread_cond_t emptyQ;
+pthread_cond_t fullQ;
 
 void * recieve(void *args) {
     struct targs *tinfo = (struct targs *) args;
@@ -33,10 +35,17 @@ void * recieve(void *args) {
     while (1){
         n = recvfrom(sockRecvr, buffer, PACKET_SIZE, 0, (struct sockaddr *)serverSendr, &length);
         decode(buffer, &p);
+        //Critical section begins.
+        pthread_mutex_lock(&mutex);
+        ack_queue.push(p.seq_no);
+        pthread_cond_signal(&emptyQ);
+        pthread_mutex_unlock(&mutex);
+        //Critical sections ends.
+
         if (p.type == TERM)
             break;
-        ack_queue.push(p.seq_no);
-        pq.push(p);
+
+        fileQ.push(p);
         if (debug == 1) printf("Got seq: %d\n",p.seq_no);
         write(fWrite, p.data, p.length);
 
@@ -64,10 +73,27 @@ void * transmit (void * args) {
     int debug = 0;
 
     packet_t p;
+    p.type = ACK;
+    p.length = 0;
     uint8_t  buffer[PACKET_SIZE];
     int length = sizeof(struct sockaddr_in);
 
     while (1){
+
+        //Critical section begins.
+        pthread_mutex_lock(&mutex);
+        if (ack_queue.empty()) {
+            pthread_cond_wait(&emptyQ, &mutex);
+        }
+        p.seq_no = ack_queue.front();
+        ack_queue.pop();
+        pthread_mutex_unlock(&mutex);
+        //Critical sections ends.
+
+        if (p.seq_no == -1)
+            break;
+
+        encode(buffer, &p);
         n = sendto(sockSendr,buffer,PACKET_SIZE,0,(const struct sockaddr *)&serverRecvr,length);
     }
 }
@@ -84,6 +110,8 @@ int main(int argc, char *argv[]) {
     pthread_t tx, rx;
     int debug = 0;
 
+    mutex = PTHREAD_MUTEX_INITIALIZER;
+    emptyQ = PTHREAD_COND_INITIALIZER;
     //Serializing...
     //bcopy(&p.seq_no, buffer);
 
@@ -164,21 +192,27 @@ int main(int argc, char *argv[]) {
     rxinfo.socket = sockRecvr;
     rxinfo.addr = &serverSendr;
 
+    txinfo.fd = -1;
+    txinfo.socket = sockSendr;
+    txinfo.addr = &serverRecvr;
+
     pthread_create(&rx, NULL, &recieve, (void *) &rxinfo);
+    pthread_create(&tx, NULL, &transmit, (void *) &txinfo);
 
     pthread_join(rx, NULL);
+    pthread_join(tx, NULL);
 
-    int len_queue = ack_queue.size();
-    for (int i = 0; i < len_queue; i++) {
-        printf("ack_queue[%d]: %d\n", i, ack_queue.front());
-        ack_queue.pop();
-    }
-
-    len_queue = pq.size();
-    for (int i = 0; i < len_queue; i++) {
-        printf("pri_queue[%d]: %d\n", i, pq.top().seq_no);
-        pq.pop();
-    }
+//    int len_queue = ack_queue.size();
+//    for (int i = 0; i < len_queue; i++) {
+//        printf("ack_queue[%d]: %d\n", i, ack_queue.front());
+//        ack_queue.pop();
+//    }
+//
+//    len_queue = fileQ.size();
+//    for (int i = 0; i < len_queue; i++) {
+//        printf("pri_queue[%d]: %d\n", i, fileQ.top().seq_no);
+//        fileQ.pop();
+//    }
 
     close(sockSendr);
     return 0;

@@ -30,11 +30,9 @@ void *transmit(void *args) {
 
         retries += 1;
         n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *) clientRecvr, fromlen);
-        if (n < 0) continue;
-        decode(buffer, &p);
     }
     p.type = TERM;
-    p.seq_no += 1;
+    p.seq_no = -1;
     p.length = 0;
     memset(buffer, 0, MAX_DATA);
     encode(buffer, &p);
@@ -184,10 +182,10 @@ int main(int argc, char *argv[])
         rxinfo.addr = &clientSendr;
 
         pthread_create(&tx, NULL, &transmit, (void *) &txinfo);
-        //pthread_create(&rx, NULL, &recieve, (void *) &rxinfo);
+        pthread_create(&rx, NULL, &recieve, (void *) &rxinfo);
 
         pthread_join(tx, NULL);
-        //pthread_join(rx, NULL);
+        pthread_join(rx, NULL);
     }
     return 0;
  }
