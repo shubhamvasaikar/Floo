@@ -9,13 +9,28 @@ void error(const char *msg)
     exit(0);
 }
 
+/*
+ * This structure is used to store timestamp and resend
+ * status of a packet for storing it into the window.
+ */
 typedef struct wrapper_t {
     packet_t packet;
     bool resend;
     int timestamp;
 }wrapper_t;
 
+/*
+ * This is the window for sending packets. When a packet is sent,
+ * it is pushed onto the window. When an acknowledgement is recieved,
+ * it is removed from the window.
+ */
 unordered_map<int, wrapper_t> window;
+
+/*
+ * This is the queue to implement the resending mechanism, if a timeout
+ * has occured, packets, are marked for restransmission, and their
+ * sequence_nos are pushed onto this queue.
+ */
 queue<int> resend_queue;
 int window_size = 1;
 
@@ -30,6 +45,11 @@ bool is_expired(int start, int stop) {
     return duration > TIMEOUT ? true : false;
 }
 
+/*
+ * This function will compare the timestamps of the packets in the window with
+ * the threshold and mark packets for retransmission. In case of a timeout,
+ * window size will be halved.
+ */
 void *timer_and_check(void * args) {
     int terminate = 0;
     while (1) {
@@ -48,7 +68,7 @@ void *timer_and_check(void * args) {
             if (is_expired(it->second.timestamp, current_time)) {
                 resend_queue.push(it->second.packet.seq_no);
                 it->second.resend = true;
-                window_size / 2;
+                window_size /= 2;
             }
             it++;
         }
@@ -57,6 +77,11 @@ void *timer_and_check(void * args) {
     }
 }
 
+/*
+ * The transmit function is responsible for sending data packets
+ * to the client. It also pushes packets to the window so that the reciever
+ * can keep track of acknowledged packets.
+ */
 void *transmit(void *args) {
     struct targs *tinfo = (struct targs *) args;
     int n = 0, retries = 0;
@@ -128,6 +153,11 @@ void *transmit(void *args) {
     n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *) clientRecvr, fromlen);
 }
 
+/*
+ * The receive thread receives acknowledgements from the client and removes the packet
+ * from the queue. It also increments the size of the window by 1 for every acknowledgement
+ * recieved.
+ */
 void *recieve(void *args){
     struct targs *tinfo = (struct targs *) args;
     int n = 0, terminate = 0, size = 0;

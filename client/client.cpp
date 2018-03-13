@@ -19,6 +19,12 @@ queue<int> ack_queue;
 pthread_mutex_t mutex;
 pthread_cond_t emptyQ;
 
+/*
+ * The recieve thread is used to recieve data packets from the server.
+ * It puts received packets in a priority queue called fileQ for ordered
+ * file writing and sequence numbers in a shared data structure for sending
+ * acknowledgements.
+ */
 void * recieve(void *args) {
     struct targs *tinfo = (struct targs *) args;
     int n = 0, flag = 1;
@@ -79,6 +85,11 @@ void * recieve(void *args) {
     }
 }
 
+/*
+ * This thread recieves a signal from the recieve thread after which it begins
+ * execution and starts sending acknowledgements for the successfully recieved packets.
+ * This is done by using the shared data structure ack_queue.
+ */
 void * transmit (void * args) {
     struct targs *tinfo = (struct targs *) args;
     int n = 0;
@@ -113,6 +124,11 @@ void * transmit (void * args) {
     }
 }
 
+/* The main method initiates the connection using the reciever and sender socket structures.
+ * Once, the connection is established, and the file request is completed,
+ * 2 threads are created:
+ * recieve and transmit. These threads recieve data and transmit acknowledgements respectively.
+ */
 int main(int argc, char *argv[]) {
     int sockSendr, sockRecvr, n;
     unsigned int length;
