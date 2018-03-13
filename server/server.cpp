@@ -9,6 +9,18 @@ void error(const char *msg)
     exit(0);
 }
 
+typedef struct wrapper_t {
+    packet_t packet;
+    bool resend;
+    chrono::time_point<chrono::system_clock> timestamp;
+}wrapper_t;
+
+unordered_map<int, wrapper_t> window;
+
+pthread_mutex_t windowMutex;
+pthread_cond_t windowFull;
+pthread_cond_t windowEmpty;
+
 void *transmit(void *args) {
     struct targs *tinfo = (struct targs *) args;
     int n = 0, retries = 0;
@@ -17,6 +29,7 @@ void *transmit(void *args) {
     int sockSendr = tinfo->socket;
     struct sockaddr_in *clientRecvr = tinfo->addr;
 
+    wrapper_t w;
     packet_t p;
     uint8_t  buffer[PACKET_SIZE];
     socklen_t fromlen = sizeof(struct sockaddr_in);
@@ -28,6 +41,20 @@ void *transmit(void *args) {
         p.length = bytesRead;
         encode(buffer, &p);
 
+        w.packet = p;
+        w.resend = false;
+        w.timestamp = chrono::system_clock::now();
+
+        //Start of critical section.
+        pthread_mutex_lock(&windowMutex);
+        if (window.size() >= WINDOW_SIZE) {
+            pthread_cond_wait(&windowFull, &windowMutex);
+        }
+        window.insert({w.packet.seq_no, w});
+        //pthread_cond_signal(&windowEmpty);
+        pthread_mutex_unlock(&windowMutex);
+        //End of critical section.
+
         retries += 1;
         n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *) clientRecvr, fromlen);
     }
@@ -36,23 +63,60 @@ void *transmit(void *args) {
     p.length = 0;
     memset(buffer, 0, MAX_DATA);
     encode(buffer, &p);
+
+    w.packet = p;
+    w.resend = false;
+    w.timestamp = chrono::system_clock::now();
+
+    //Start of critical section.
+    pthread_mutex_lock(&windowMutex);
+    if (window.size() >= WINDOW_SIZE) {
+        pthread_cond_wait(&windowFull, &windowMutex);
+    }
+    window.insert({w.packet.seq_no, w});
+    pthread_mutex_unlock(&windowMutex);
+    //End of critical section.
+
     n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *) clientRecvr, fromlen);
     printf("No. of retries: %d\n\n", (retries - (p.seq_no - 4)));
 }
 
 void *recieve(void *args){
     struct targs *tinfo = (struct targs *) args;
-    int n = 0, retries = 0;
+    int n = 0, terminate = 0, size = 0;
     int bytesRead = 0;
     int fRead = tinfo->fd;
     int sockRecvr = tinfo->socket;
     struct sockaddr_in *clientSendr;
+    std::unordered_map<int,wrapper_t>::const_iterator term_iter;
+
+    wrapper_t w;
     packet_t p;
     uint8_t  buffer[PACKET_SIZE];
     socklen_t fromlen = sizeof(struct sockaddr_in);
 
     while(1) {
-        n = recvfrom(sockRecvr,buffer,PACKET_SIZE,0,(struct sockaddr *)clientSendr, &fromlen);
+
+        n = recvfrom(sockRecvr, buffer, PACKET_SIZE, 0, (struct sockaddr *) clientSendr, &fromlen);
+        decode(buffer, &p);
+
+        //Enter the critical section.
+        pthread_mutex_lock(&windowMutex);
+        window.erase(p.seq_no);
+        size = window.size();
+        term_iter = window.find(-1);
+        if (term_iter != window.end()) {
+            if ((size == 1) && (term_iter->second.packet.seq_no == -1)){
+                terminate = -1;
+            }
+        }
+        pthread_cond_signal(&windowFull);
+        pthread_mutex_unlock(&windowMutex);
+        //Exit the critical section.
+
+        if (terminate == -1) {
+            break;
+        }
     }
 }
 
@@ -113,8 +177,6 @@ int main(int argc, char *argv[])
 
     while(1) {
         retries = 0;
-        timeout.tv_usec = 0;
-        setsockopt(sockRecvr,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
 
         //Listen and accept for connections.
         printf("Listening for connection.\n");

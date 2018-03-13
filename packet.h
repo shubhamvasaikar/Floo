@@ -1,6 +1,8 @@
 #include <iostream>
 #include <queue>
 #include <functional>
+#include <chrono>
+#include <unordered_map>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -19,6 +21,7 @@ using namespace std;
 #define PORT_NUMBER_DATA 5277
 #define PORT_NUMBER_ACK 4111
 #define MAX_DATA 1024
+#define WINDOW_SIZE 10
 
 typedef enum {
     REQ,

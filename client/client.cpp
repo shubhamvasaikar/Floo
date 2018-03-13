@@ -18,7 +18,6 @@ queue<int> ack_queue;
 
 pthread_mutex_t mutex;
 pthread_cond_t emptyQ;
-pthread_cond_t fullQ;
 
 void * recieve(void *args) {
     struct targs *tinfo = (struct targs *) args;
@@ -35,6 +34,7 @@ void * recieve(void *args) {
     while (1){
         n = recvfrom(sockRecvr, buffer, PACKET_SIZE, 0, (struct sockaddr *)serverSendr, &length);
         decode(buffer, &p);
+        cout<<"Received packet:"<<p.seq_no<<endl;
         //Critical section begins.
         pthread_mutex_lock(&mutex);
         ack_queue.push(p.seq_no);
@@ -72,6 +72,7 @@ void * transmit (void * args) {
     struct sockaddr_in *serverRecvr = tinfo->addr;
     int debug = 0;
 
+    printf("Entering trasmit.");
     packet_t p;
     p.type = ACK;
     p.length = 0;
@@ -94,7 +95,8 @@ void * transmit (void * args) {
             break;
 
         encode(buffer, &p);
-        n = sendto(sockSendr,buffer,PACKET_SIZE,0,(const struct sockaddr *)&serverRecvr,length);
+        cout<<"Sending Acknowledgement:"<<p.seq_no;
+        n = sendto(sockSendr,buffer,PACKET_SIZE,0,(const struct sockaddr *)serverRecvr,length);
     }
 }
 
