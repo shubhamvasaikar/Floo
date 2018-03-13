@@ -1,26 +1,37 @@
-CS 594 Programming Project Part 1
+CS 594 Programming Project Part 2
 Shubham Vasaikar
 
-cs594_1
+cs594_2
 ├── client
-│   └── client.c
+│   └── client.cpp
 ├── Makefile
 ├── packet.h
 └── server
-    ├── server.c
+    ├── server.cpp
     ├── test1.txt
     ├── test2.txt
+    ├── test3.txt
     └── test.txt
 
 This project consists of the following files:
 1. packet.h - Contains the declaration of the packet structure and the serialization and deserialization functions.
 
-2. client/client.c - Contains the code for the client.
-	Usage: ./client.o hostname port filename
+2. client/client.cpp - Contains the code for the client.
+	Usage: ./client.o hostname filename
 
-3. server/server.c - Contains the code for the server.
-	Usage: ./server.o port
+3. server/server.cpp - Contains the code for the server.
+	Usage: ./server.o
 
-4. server/test*.txt - 3 files for testing file sending. File sizes are 10KB, 61B, and 10MB respectively.
+4. server/test*.txt - 4 files for testing file sending. File sizes are 10KB, 61B, and 10MB respectively.
 
 5. Makefile - For building the project's executables.
+
+For this part of the project, I changed my implementation to C++ so that I can use the STL
+for priority_queue, unordered_map and queue implementations.
+
+In my project, multithreading and transmission using multiple sockets is complete.
+The window size is also dynamic and increases and decreases in accordance with the 
+AIMD mechanism. My retransmission algorithm does not work as expected and runs into
+a few issues, however the algorithm for retransmission is present in the code for
+review,and the code for dropping packets is currently disabled. File ordering is also
+implemented and works as expected.
