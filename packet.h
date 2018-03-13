@@ -22,7 +22,7 @@ using namespace std;
 #define PORT_NUMBER_DATA 5277
 #define PORT_NUMBER_ACK 4111
 #define MAX_DATA 1024
-#define WINDOW_SIZE 10
+#define MAX_WINDOW_SIZE 20
 #define TIMEOUT 100
 
 typedef enum {

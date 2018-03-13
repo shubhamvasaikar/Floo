@@ -17,6 +17,7 @@ typedef struct wrapper_t {
 
 unordered_map<int, wrapper_t> window;
 queue<int> resend_queue;
+int window_size = 1;
 
 pthread_mutex_t windowMutex;
 pthread_cond_t windowFull;
@@ -32,7 +33,7 @@ bool is_expired(int start, int stop) {
 void *timer_and_check(void * args) {
     int terminate = 0;
     while (1) {
-        usleep(100000);
+        usleep(1000000);
 
         int current_time = clock();
 
@@ -44,9 +45,10 @@ void *timer_and_check(void * args) {
             }
         }
         while (it != window.end()) {
-            if (is_expired(current_time, it->second.timestamp)) {
+            if (is_expired(it->second.timestamp, current_time)) {
                 resend_queue.push(it->second.packet.seq_no);
                 it->second.resend = true;
+                window_size / 2;
             }
             it++;
         }
@@ -62,7 +64,7 @@ void *transmit(void *args) {
     int fRead = tinfo->fd;
     int sockSendr = tinfo->socket;
     struct sockaddr_in *clientRecvr = tinfo->addr;
-    std::unordered_map<int,wrapper_t>::const_iterator term_iter;
+    std::unordered_map<int,wrapper_t>::iterator term_iter;
 
     wrapper_t w;
     packet_t p;
@@ -82,7 +84,7 @@ void *transmit(void *args) {
 
         //Start of critical section.
         pthread_mutex_lock(&windowMutex);
-        if (window.size() >= WINDOW_SIZE) {
+        while (window.size() >= window_size) {
             pthread_cond_wait(&windowFull, &windowMutex);
         }
         window.insert({w.packet.seq_no, w});
@@ -99,6 +101,7 @@ void *transmit(void *args) {
                 term_iter = window.find(resend_queue.front());
                 p = term_iter->second.packet;
                 n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *) clientRecvr, fromlen);
+                resend_queue.pop();
             }
         }
         pthread_mutex_unlock(&windowMutex);
@@ -115,7 +118,7 @@ void *transmit(void *args) {
 
     //Start of critical section.
     pthread_mutex_lock(&windowMutex);
-    if (window.size() >= WINDOW_SIZE) {
+    while (window.size() >= window_size) {
         pthread_cond_wait(&windowFull, &windowMutex);
     }
     window.insert({w.packet.seq_no, w});
@@ -148,6 +151,9 @@ void *recieve(void *args){
         pthread_mutex_lock(&windowMutex);
         window.erase(p.seq_no);
         size = window.size();
+        if (window_size < MAX_WINDOW_SIZE) {
+            window_size += 1;
+        }
         term_iter = window.find(-1);
         if (term_iter != window.end()) {
             if ((size == 1) && (term_iter->second.packet.seq_no == -1)){
@@ -290,9 +296,9 @@ int main(int argc, char *argv[])
     pthread_create(&rx, NULL, &recieve, (void *) &rxinfo);
     pthread_create(&cx, NULL, &timer_and_check, NULL);
 
+    pthread_join(cx, NULL);
     pthread_join(tx, NULL);
     pthread_join(rx, NULL);
-    pthread_join(cx, NULL);
 
     return 0;
  }
