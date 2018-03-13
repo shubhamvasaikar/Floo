@@ -2,6 +2,7 @@
 #include <queue>
 #include <functional>
 #include <chrono>
+#include <ctime>
 #include <unordered_map>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -22,6 +23,7 @@ using namespace std;
 #define PORT_NUMBER_ACK 4111
 #define MAX_DATA 1024
 #define WINDOW_SIZE 10
+#define TIMEOUT 100
 
 typedef enum {
     REQ,

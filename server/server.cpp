@@ -12,14 +12,48 @@ void error(const char *msg)
 typedef struct wrapper_t {
     packet_t packet;
     bool resend;
-    chrono::time_point<chrono::system_clock> timestamp;
+    int timestamp;
 }wrapper_t;
 
 unordered_map<int, wrapper_t> window;
+queue<int> resend_queue;
 
 pthread_mutex_t windowMutex;
 pthread_cond_t windowFull;
-pthread_cond_t windowEmpty;
+
+pthread_mutex_t resend_mutex;
+
+bool is_expired(int start, int stop) {
+    double duration = 0;
+    duration = (stop - start)/double(CLOCKS_PER_SEC)*1000;
+    return duration > TIMEOUT ? true : false;
+}
+
+void *timer_and_check(void * args) {
+    int terminate = 0;
+    while (1) {
+        usleep(100000);
+
+        int current_time = clock();
+
+        pthread_mutex_lock(&windowMutex);
+        unordered_map<int, wrapper_t>::iterator it = window.begin();
+        if (it != window.end()) {
+            if ((window.size() == 1) && (it->second.packet.seq_no == -1)) {
+                terminate = -1;
+            }
+        }
+        while (it != window.end()) {
+            if (is_expired(current_time, it->second.timestamp)) {
+                resend_queue.push(it->second.packet.seq_no);
+                it->second.resend = true;
+            }
+            it++;
+        }
+        pthread_mutex_unlock(&windowMutex);
+        if (terminate == -1) break;
+    }
+}
 
 void *transmit(void *args) {
     struct targs *tinfo = (struct targs *) args;
@@ -28,6 +62,7 @@ void *transmit(void *args) {
     int fRead = tinfo->fd;
     int sockSendr = tinfo->socket;
     struct sockaddr_in *clientRecvr = tinfo->addr;
+    std::unordered_map<int,wrapper_t>::const_iterator term_iter;
 
     wrapper_t w;
     packet_t p;
@@ -43,7 +78,7 @@ void *transmit(void *args) {
 
         w.packet = p;
         w.resend = false;
-        w.timestamp = chrono::system_clock::now();
+        w.timestamp = clock();
 
         //Start of critical section.
         pthread_mutex_lock(&windowMutex);
@@ -57,6 +92,16 @@ void *transmit(void *args) {
 
         retries += 1;
         n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *) clientRecvr, fromlen);
+
+        pthread_mutex_lock(&windowMutex);
+        if (resend_queue.size() > 0) {
+            while (resend_queue.size() > 0) {
+                term_iter = window.find(resend_queue.front());
+                p = term_iter->second.packet;
+                n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *) clientRecvr, fromlen);
+            }
+        }
+        pthread_mutex_unlock(&windowMutex);
     }
     p.type = TERM;
     p.seq_no = -1;
@@ -66,7 +111,7 @@ void *transmit(void *args) {
 
     w.packet = p;
     w.resend = false;
-    w.timestamp = chrono::system_clock::now();
+    w.timestamp = clock();
 
     //Start of critical section.
     pthread_mutex_lock(&windowMutex);
@@ -127,7 +172,7 @@ int main(int argc, char *argv[])
     struct sockaddr_in serverRecvr;       //serverRecvr - port 5277
     struct sockaddr_in clientSendr;
     struct sockaddr_in clientRecvr;
-    pthread_t tx, rx;
+    pthread_t tx, rx, cx;
     args txinfo, rxinfo;
     uint8_t buffer[PACKET_SIZE];                 // buf is buffer
     int bytesRead = 0;
@@ -174,79 +219,80 @@ int main(int argc, char *argv[])
     //initializing the size for the client address struct
     fromlen = sizeof(struct sockaddr_in);
 
-    while(1) {
-        retries = 0;
+    retries = 0;
 
-        //Listen and accept for connections.
-        printf("Listening for connection.\n");
-        //recvFrom(sockfd, *buffer, size_t length of buff, flags, source address struct, address length) 'n' will have message/packet-length
-        while (1) {
-            n = recvfrom(sockRecvr, buffer, PACKET_SIZE, 0, (struct sockaddr *)&clientSendr, &fromlen);
-            if (n < 0) printf("Connection failed.");
-            decode (buffer, &p);
-            if (p.type == REQ) break;
-        }
-        printf("Accepting Connection.\n\n");
-        p.type = ACK;
+    //Listen and accept for connections.
+    printf("Listening for connection.\n");
+    //recvFrom(sockfd, *buffer, size_t length of buff, flags, source address struct, address length) 'n' will have message/packet-length
+    while (1) {
+        n = recvfrom(sockRecvr, buffer, PACKET_SIZE, 0, (struct sockaddr *)&clientSendr, &fromlen);
+        if (n < 0) printf("Connection failed.");
+        decode (buffer, &p);
+        if (p.type == REQ) break;
+    }
+    printf("Accepting Connection.\n\n");
+    p.type = ACK;
+    p.seq_no += 1;
+    encode(buffer, &p);
+    n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *)&clientSendr, fromlen);
+
+    //Accept File request.
+    printf("Waiting for file request.\n");
+    while (1) {
+        n = recvfrom(sockRecvr, buffer, PACKET_SIZE, 0, (struct sockaddr *)&clientSendr, &fromlen);
+        if (n < 0) printf("Connection failed.");
+        decode (buffer, &p);
+        if (p.type == FILE_REQ) break;
+    }
+    decodeFilename(buffer, filename);
+    printf("Filename: %s\n", filename);
+    if (access(filename, F_OK) != -1) {
+        p.type = FILE_REQ_ACK;
+        printf("File request accepted.\n\n");
         p.seq_no += 1;
+        p.length = 0;
         encode(buffer, &p);
         n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *)&clientSendr, fromlen);
-
-        //Accept File request.
-        printf("Waiting for file request.\n");
-        while (1) {
-            n = recvfrom(sockRecvr, buffer, PACKET_SIZE, 0, (struct sockaddr *)&clientSendr, &fromlen);
-            if (n < 0) printf("Connection failed.");
-            decode (buffer, &p);
-            if (p.type == FILE_REQ) break;
-        }
-        decodeFilename(buffer, filename);
-        printf("Filename: %s\n", filename);
-        if (access(filename, F_OK) != -1) {
-            p.type = FILE_REQ_ACK;
-            printf("File request accepted.\n\n");
-            p.seq_no += 1;
-            p.length = 0;
-            encode(buffer, &p);
-            n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *)&clientSendr, fromlen);
-        }
-        else {
-            p.type = FILE_ERR;
-            p.seq_no += 1;
-            p.length = 0;
-            encode(buffer, &p);
-            n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *)&clientSendr, fromlen);
-            printf("File error.\n\n");
-            continue;
-        }
-
-        //File send.
-        while(1) {
-            //printf("Before recvfrom()");
-            n = recvfrom(sockRecvr, buffer, PACKET_SIZE, 0, (struct sockaddr *)&clientRecvr, &fromlen);
-            decode(buffer, &p);
-            if(p.type == SEND_FILE) break;
-        }
-
-        int fRead = open(filename, 'r');
-        if (fRead < 0) error("File not found.");
-
-        timeout.tv_usec = 100000; //100ms timeout before retransmission.
-        //setsockopt(sockRecvr,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
-
-        txinfo.fd = fRead;
-        txinfo.socket = sockSendr;
-        txinfo.addr = &clientRecvr;
-
-        rxinfo.fd = 0;
-        rxinfo.socket = sockRecvr;
-        rxinfo.addr = &clientSendr;
-
-        pthread_create(&tx, NULL, &transmit, (void *) &txinfo);
-        pthread_create(&rx, NULL, &recieve, (void *) &rxinfo);
-
-        pthread_join(tx, NULL);
-        pthread_join(rx, NULL);
     }
+    else {
+        p.type = FILE_ERR;
+        p.seq_no += 1;
+        p.length = 0;
+        encode(buffer, &p);
+        n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *)&clientSendr, fromlen);
+        printf("File error.\n\n");
+        return 0;
+    }
+
+    //File send.
+    while(1) {
+        //printf("Before recvfrom()");
+        n = recvfrom(sockRecvr, buffer, PACKET_SIZE, 0, (struct sockaddr *)&clientRecvr, &fromlen);
+        decode(buffer, &p);
+        if(p.type == SEND_FILE) break;
+    }
+
+    int fRead = open(filename, 'r');
+    if (fRead < 0) error("File not found.");
+
+    timeout.tv_usec = 100000; //100ms timeout before retransmission.
+    //setsockopt(sockRecvr,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
+
+    txinfo.fd = fRead;
+    txinfo.socket = sockSendr;
+    txinfo.addr = &clientRecvr;
+
+    rxinfo.fd = 0;
+    rxinfo.socket = sockRecvr;
+    rxinfo.addr = &clientSendr;
+
+    pthread_create(&tx, NULL, &transmit, (void *) &txinfo);
+    pthread_create(&rx, NULL, &recieve, (void *) &rxinfo);
+    pthread_create(&cx, NULL, &timer_and_check, NULL);
+
+    pthread_join(tx, NULL);
+    pthread_join(rx, NULL);
+    pthread_join(cx, NULL);
+
     return 0;
  }
