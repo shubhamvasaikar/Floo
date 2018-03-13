@@ -78,7 +78,6 @@ void *transmit(void *args) {
     //End of critical section.
 
     n = sendto(sockSendr, buffer, PACKET_SIZE, 0, (struct sockaddr *) clientRecvr, fromlen);
-    printf("No. of retries: %d\n\n", (retries - (p.seq_no - 4)));
 }
 
 void *recieve(void *args){
