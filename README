@@ -31,7 +31,5 @@ for priority_queue, unordered_map and queue implementations.
 
 In my project, multithreading and transmission using multiple sockets is complete.
 The window size is also dynamic and increases and decreases in accordance with the 
-AIMD mechanism. My retransmission algorithm does not work as expected and runs into
-a few issues, however the algorithm for retransmission is present in the code for
-review,and the code for dropping packets is currently disabled. File ordering is also
+AIMD mechanism. The code for dropping packets is currently disabled. File ordering is also
 implemented and works as expected.
